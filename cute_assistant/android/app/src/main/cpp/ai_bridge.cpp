@@ -107,27 +107,27 @@ void SendBoolToDart(Dart_Port port_id, bool value) {
 void stt_thread_func() {
     __android_log_print(ANDROID_LOG_INFO, APPNAME, "STT thread started");
     // Initialize Whisper.cpp / VAD here
-    // Loop while g_is_processing
-    //  - Record audio (or receive from Dart/Platform)
-    //  - Perform VAD
-    //  - Perform STT using Whisper.cpp (on GPU if configured)
-    //  - Send transcribed text chunks to g_transcript_port
-    //  - Send full transcription to LLM (e.g., via another shared buffer or direct call)
+
     while(g_is_processing) {
         // Simulate STT work
         std::this_thread::sleep_for(std::chrono::seconds(2));
         if (!g_is_processing) break;
 
+        // Get final transcript
         std::string transcript = "User said: Hello world at " + std::to_string(time(nullptr));
+        
+        // Send transcript to UI immediately
         SendStringToDart(g_transcript_port, transcript);
-
-        // Pass to LLM (simplified - this should be a queue)
-        // For now, let's imagine LLM directly picks this up or g_llm_text_input_buffer.push(transcript);
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "STT produced: %s", transcript.c_str());
-
-        // This is where you'd feed the transcript to the LLM's input queue
+        
+        // Log and pass to LLM
+        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Final transcript going to LLM: %s", transcript.c_str());
+        
+        // Here you would pass to LLM's input queue
+        // For now simulated - in real implementation you'd:
+        // 1. Pass to LLM input buffer
+        // 2. Signal LLM thread that new input is available
     }
-    // Cleanup Whisper.cpp
+    
     __android_log_print(ANDROID_LOG_INFO, APPNAME, "STT thread finished");
 }
 

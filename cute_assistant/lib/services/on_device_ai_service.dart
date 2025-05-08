@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:ffi';
-import 'dart:io' show Platform;
-// import 'package:ffi/ffi.dart';
+// import 'dart:io' show Platform;
+import 'package:ffi/ffi.dart';
 import 'dart:isolate';
 
 // Define C function signatures for FFI
@@ -51,78 +51,84 @@ class OnDeviceAIService {
   }
 
   void _loadNativeLibrary() {
-    final libName = Platform.isAndroid ? "libai_bridge.so" : (Platform.isIOS ? "ai_bridge.framework/ai_bridge" : "libai_bridge.dylib");
-    _nativeLib = DynamicLibrary.open(libName);
+    // final libName = Platform.isAndroid ? "libai_bridge.so" : (Platform.isIOS ? "ai_bridge.framework/ai_bridge" : "libai_bridge.dylib");
+    // _nativeLib = DynamicLibrary.open(libName);
 
-    // Lookup FFI functions
-    _nativeInitializeDartApi = _nativeLib
-        .lookup<NativeFunction<NativeInitializeDartApi>>('native_initialize_dart_api')
-        .asFunction();
-    _nativeInitializePorts = _nativeLib
-        .lookup<NativeFunction<NativeInitializePorts>>('native_initialize_ports')
-        .asFunction();
-    _nativeStartProcessing = _nativeLib
-        .lookup<NativeFunction<NativeStartProcessing>>('native_start_processing')
-        .asFunction();
-    _nativeStopProcessing = _nativeLib
-        .lookup<NativeFunction<NativeStopProcessing>>('native_stop_processing')
-        .asFunction();
-    _nativeDispose = _nativeLib
-        .lookup<NativeFunction<NativeDispose>>('native_dispose')
-        .asFunction();
+    // // Lookup FFI functions
+    // _nativeInitializeDartApi = _nativeLib
+    //     .lookup<NativeFunction<NativeInitializeDartApi>>('native_initialize_dart_api')
+    //     .asFunction();
+    // _nativeInitializePorts = _nativeLib
+    //     .lookup<NativeFunction<NativeInitializePorts>>('native_initialize_ports')
+    //     .asFunction();
+    // _nativeStartProcessing = _nativeLib
+    //     .lookup<NativeFunction<NativeStartProcessing>>('native_start_processing')
+    //     .asFunction();
+    // _nativeStopProcessing = _nativeLib
+    //     .lookup<NativeFunction<NativeStopProcessing>>('native_stop_processing')
+    //     .asFunction();
+    // _nativeDispose = _nativeLib
+    //     .lookup<NativeFunction<NativeDispose>>('native_dispose')
+    //     .asFunction();
   }
 
   void _initializeNativeApi() {
     // Initialize Dart API for C. This is crucial for C to call back to Dart.
-    _nativeInitializeDartApi(NativeApi.initializeApiDLData);
+    // _nativeInitializeDartApi(NativeApi.initializeApiDLData);
   }
 
   void _initializePorts() {
-    _transcriptReceivePort = ReceivePort();
-    _llmTokenReceivePort = ReceivePort();
-    _speakingStateReceivePort = ReceivePort();
+    // _transcriptReceivePort = ReceivePort();
+    // _llmTokenReceivePort = ReceivePort();
+    // _speakingStateReceivePort = ReceivePort();
 
-    _transcriptReceivePort.listen((dynamic message) {
-      if (message is String) {
-        _transcriptController.add(message);
-      }
-    });
+    // _transcriptReceivePort.listen((dynamic message) {
+    //   if (message is String) {
+    //     _transcriptController.add(message);
+    //   }
+    // });
 
-    _llmTokenReceivePort.listen((dynamic message) {
-      if (message is String) {
-        _llmResponseController.add(message);
-      }
-    });
+    // _llmTokenReceivePort.listen((dynamic message) {
+    //   if (message is String) {
+    //     _llmResponseController.add(message);
+    //   }
+    // });
 
-    _speakingStateReceivePort.listen((dynamic message) {
-      if (message is bool) {
-        _isSpeakingController.add(message);
-      }
-    });
+    // _speakingStateReceivePort.listen((dynamic message) {
+    //   if (message is bool) {
+    //     _isSpeakingController.add(message);
+    //   }
+    // });
 
-    // Send native port IDs to C++ side
-    _nativeInitializePorts(
-      _transcriptReceivePort.sendPort.nativePort,
-      _llmTokenReceivePort.sendPort.nativePort,
-      _speakingStateReceivePort.sendPort.nativePort,
-    );
+    // // Send native port IDs to C++ side
+    // _nativeInitializePorts(
+    //   _transcriptReceivePort.sendPort.nativePort,
+    //   _llmTokenReceivePort.sendPort.nativePort,
+    //   _speakingStateReceivePort.sendPort.nativePort,
+    // );
   }
 
   void startProcessing() {
-    _nativeStartProcessing();
+    // _nativeStartProcessing();
   }
 
   void stopProcessing() {
-    _nativeStopProcessing();
+    // _nativeStopProcessing();
+  }
+
+  Future<void> processTextInput(String text) async {
+    // TODO: Replace this with your actual LLM/native call
+    await Future.delayed(const Duration(milliseconds: 100));
+    _llmResponseController.add("I received your message: $text");
   }
 
   void dispose() {
-    _nativeDispose();
-    _transcriptReceivePort.close();
-    _llmTokenReceivePort.close();
-    _speakingStateReceivePort.close();
-    _transcriptController.close();
-    _llmResponseController.close();
-    _isSpeakingController.close();
+    // _nativeDispose();
+    // _transcriptReceivePort.close();
+    // _llmTokenReceivePort.close();
+    // _speakingStateReceivePort.close();
+    // _transcriptController.close();
+    // _llmResponseController.close();
+    // _isSpeakingController.close();
   }
 }

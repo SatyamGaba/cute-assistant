@@ -29,9 +29,16 @@ class ChatState extends ChangeNotifier {
   Future<void> _initialize() async {
     // Listen to transcription updates from the AI service
     _aiService.transcriptStream.listen((transcriptChunk) {
-      _currentTranscript = transcriptChunk; // Update live transcript
-      // Optionally update UI to show live recognized text for user
-      // For now, we add the full message when recording stops
+      _currentTranscript = transcriptChunk;
+      if (_isRecording) {
+        // If this is the first chunk for this recording session, add a new message
+        if (_messages.isEmpty || _messages.last.isUser == false) {
+          _addMessage(Message(_currentTranscript, true));
+        } else {
+          // Update the last user message with the new transcript
+          _messages.last.text = _currentTranscript;
+        }
+      }
       notifyListeners();
     }, onError: (error) {
       _addMessage(Message("Error in transcription: $error", false));
@@ -86,6 +93,12 @@ class ChatState extends ChangeNotifier {
       }
     }
     notifyListeners();
+  }
+
+  Future<void> sendTextMessage(String text) async {
+    if (text.trim().isEmpty) return;
+    _addMessage(Message(text, true));
+    await _aiService.processTextInput(text);
   }
 
   // Internal stop, e.g., on error
