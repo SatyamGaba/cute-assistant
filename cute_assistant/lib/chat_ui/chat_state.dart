@@ -1,112 +1,103 @@
-import 'dart:async';
-import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import '../services/on_device_ai_service.dart';
-
-enum MessageSender { user, assistant }
+import 'package:permission_handler/permission_handler.dart';
 
 class Message {
-  final String id;
-  final String text;
-  final MessageSender sender;
+  String text;
+  final bool isUser;
   final DateTime timestamp;
 
-  Message({
-    required this.id,
-    required this.text,
-    required this.sender,
-    DateTime? timestamp,
-  }) : timestamp = timestamp ?? DateTime.now();
+  Message(this.text, this.isUser, {DateTime? timestamp})
+      : timestamp = timestamp ?? DateTime.now();
 }
 
 class ChatState extends ChangeNotifier {
   final OnDeviceAIService _aiService;
   final List<Message> _messages = [];
   bool _isRecording = false;
-  String _currentTranscript = ''; // Buffer for incoming STT results
+  bool _isAISpeaking = false; // To track if TTS is active
+  String _currentTranscript = ""; // To buffer user's speech before sending
 
-  StreamSubscription? _transcriptSubscription;
-  StreamSubscription? _llmTokenSubscription;
+  ChatState(this._aiService) {
+    _initialize();
+  }
 
   List<Message> get messages => List.unmodifiable(_messages);
   bool get isRecording => _isRecording;
-  String get currentTranscript => _currentTranscript; // Might be useful for UI to show live transcript
+  bool get isAISpeaking => _isAISpeaking; // Expose this if UI needs it
 
-  ChatState(this._aiService) {
-    _initializeListeners();
-  }
-
-  void _initializeListeners() {
-    _transcriptSubscription = _aiService.transcriptStream.listen((transcript) {
-      _currentTranscript = transcript; // Update live transcript
-      // Decide if/when this live transcript should form a message or update UI directly
-      print("ChatState: Live transcript: $_currentTranscript");
-      notifyListeners(); 
+  Future<void> _initialize() async {
+    // Listen to transcription updates from the AI service
+    _aiService.transcriptStream.listen((transcriptChunk) {
+      _currentTranscript = transcriptChunk; // Update live transcript
+      // Optionally update UI to show live recognized text for user
+      // For now, we add the full message when recording stops
+      notifyListeners();
+    }, onError: (error) {
+      _addMessage(Message("Error in transcription: $error", false));
+      _stopRecordingInternal();
     });
 
-    _llmTokenSubscription = _aiService.llmTokenStream.listen((token) {
-      if (_messages.isNotEmpty && _messages.last.sender == MessageSender.assistant) {
-        // Append token to the last assistant message
-        final lastMessage = _messages.last;
-        _messages[_messages.length - 1] = Message(
-          id: lastMessage.id,
-          text: lastMessage.text + token,
-          sender: MessageSender.assistant,
-          timestamp: lastMessage.timestamp,
-        );
+    // Listen to LLM token stream for AI responses
+    _aiService.llmResponseStream.listen((token) {
+      if (_messages.isEmpty || _messages.last.isUser) {
+        _addMessage(Message(token, false)); // Start new AI message
       } else {
-        // Start a new assistant message
-        _addMessage(token, MessageSender.assistant, isStreamingToken: true);
+        _messages.last.text += token; // Append to existing AI message
       }
+      notifyListeners();
+    }, onError: (error) {
+      _addMessage(Message("Error from LLM: $error", false));
+      _stopRecordingInternal(); // Or handle differently
+    });
+
+    // Listen to AI speaking state (TTS active or not)
+    _aiService.isSpeakingStream.listen((speaking) {
+      _isAISpeaking = speaking;
       notifyListeners();
     });
   }
 
-  void _addMessage(String text, MessageSender sender, {bool isStreamingToken = false}) {
-    final messageId = DateTime.now().millisecondsSinceEpoch.toString();
-    final message = Message(id: messageId, text: text, sender: sender);
+  void _addMessage(Message message) {
     _messages.add(message);
     if (_messages.length > 50) { // Keep history manageable
-        _messages.removeAt(0);
+      _messages.removeAt(0);
     }
     notifyListeners();
   }
 
   Future<void> toggleRecording() async {
-    _isRecording = !_isRecording;
     if (_isRecording) {
-      _currentTranscript = ''; // Clear previous transcript before starting
-      await _aiService.start();
-      print("ChatState: Recording started.");
-      // Optionally, add a placeholder message like "Listening..."
-      // _addMessage("Listening...", MessageSender.assistant);
-    } else {
-      await _aiService.stop();
-      print("ChatState: Recording stopped.");
+      // Stop recording
+      _aiService.stopProcessing();
       if (_currentTranscript.isNotEmpty) {
-        // After stopping, if there's a final transcript, add it as a user message
-        addUserMessage(_currentTranscript);
-        _currentTranscript = ''; // Clear after processing
+        _addMessage(Message(_currentTranscript, true));
+        _currentTranscript = ""; // Clear buffer
+      }
+      _isRecording = false;
+    } else {
+      // Start recording
+      var status = await Permission.microphone.request();
+      if (status.isGranted) {
+        _aiService.startProcessing();
+        _isRecording = true;
+      } else {
+        _addMessage(Message("Microphone permission denied.", false));
       }
     }
     notifyListeners();
   }
 
-  // Called when user types and sends a message, or when voice input is finalized
-  void addUserMessage(String text) {
-    if (text.trim().isEmpty) return;
-    _addMessage(text.trim(), MessageSender.user);
-    // Here you could potentially send the text to the LLM via a different C++ function
-    // if you want to support text input directly to the LLM without STT.
-    // For now, we assume STT transcript from voice is the primary user input to LLM.
-    print("ChatState: User message added: ${text.trim()}");
+  // Internal stop, e.g., on error
+  void _stopRecordingInternal() {
+    _aiService.stopProcessing();
+    _isRecording = false;
+    notifyListeners();
   }
 
   @override
   void dispose() {
-    _transcriptSubscription?.cancel();
-    _llmTokenSubscription?.cancel();
-    _aiService.dispose(); // This will also call _nativeStop
+    _aiService.dispose();
     super.dispose();
-    print("ChatState: Disposed.");
   }
 }

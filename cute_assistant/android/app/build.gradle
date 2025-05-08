@@ -5,10 +5,29 @@ plugins {
     id "dev.flutter.flutter-gradle-plugin"
 }
 
+// Read local.properties to get flutter.ndkVersion if not directly set
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
+
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
+
 android {
     namespace = "com.example.cute_assistant"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    ndkVersion = flutter.ndkVersion // Make sure this is set in your local.properties or root build.gradle
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
@@ -16,29 +35,86 @@ android {
     }
 
     kotlinOptions {
-        jvmTarget = JavaVersion.VERSION_1_8
+        jvmTarget = JavaVersion.VERSION_1_8 // Or JavaVersion.VERSION_1_8 if your Kotlin stdlib is aligned
+    }
+
+    // (Keep this block if you're placing prebuilt .so files directly in jniLibs)
+    // This tells Gradle where to find .so files that are not built by this project's CMake.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.example.cute_assistant"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
-        versionCode = flutter.versionCode
-        versionName = flutter.versionName
+        versionCode = flutterVersionCode.toInteger()
+        versionName = flutterVersionName
+
+        // Configure CMake arguments and C++ flags
+        externalNativeBuild {
+            cmake {
+                cppFlags "-std=c++17 -Wall -Wextra" // Enable C++17 and common warnings
+                // Optional: Add arguments to CMake, e.g., for specific ABIs or build types
+                // arguments "-DANDROID_STL=c++_shared" // If you need to specify STL
+                // abiFilters 'arm64-v8a' // Example: Build only for arm64-v8a
+            }
+        }
     }
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.debug // Replace with your actual release signing config
+            // Consider ProGuard/R8 for release builds if not already handled by Flutter
+            // minifyEnabled true
+            // shrinkResources true
+            // proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+
+            // For native code in release builds
+            externalNativeBuild {
+                cmake {
+                    // You can add release-specific CMake flags if needed
+                    // cppFlags "" // Overrides defaultConfig, so be careful
+                }
+            }
         }
+        debug {
+            // Debug specific settings if any
+            externalNativeBuild {
+                cmake {
+                    // cppFlags "-g" // Example: Add debug symbols
+                }
+            }
+        }
+    }
+
+    // Configure CMake path
+    externalNativeBuild {
+        cmake {
+            // Path to your CMakeLists.txt file for the ai_bridge
+            path "src/main/cpp/CMakeLists.txt"
+            // Version of CMake to use (can be omitted if your system default is fine
+            // and matches the one required by your NDK)
+            // version "3.22.1" // Or whatever version your NDK supports/expects
+        }
+    }
+
+    // Optional: Packaging options for native libraries
+    packagingOptions {
+        // If you have multiple .so files with the same name from different dependencies (unlikely for this setup)
+        // pickFirst 'lib/arm64-v8a/libsome_duplicate_lib.so'
+        // Exclude unnecessary files if any
+        // exclude 'META-INF/LICENSE.txt'
     }
 }
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Your other dependencies (Kotlin stdlib is usually added by AGP)
+    // implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk8:$kotlin_version"
 }

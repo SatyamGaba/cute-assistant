@@ -1,0 +1,3 @@
+X:/03_code/cute-assistant/cute_assistant/android/app/.cxx/Debug/2n296t41/arm64-v8a/CMakeFiles/ai_bridge.dir
+X:/03_code/cute-assistant/cute_assistant/android/app/.cxx/Debug/2n296t41/arm64-v8a/CMakeFiles/edit_cache.dir
+X:/03_code/cute-assistant/cute_assistant/android/app/.cxx/Debug/2n296t41/arm64-v8a/CMakeFiles/rebuild_cache.dir

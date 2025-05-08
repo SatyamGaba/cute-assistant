@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
+import 'chat_state.dart';
 import 'package:provider/provider.dart';
-import 'chat_state.dart'; // Assuming chat_state.dart is in the same directory
 
 class ChatScreen extends StatelessWidget {
   const ChatScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final chatState = Provider.of<ChatState>(context);
-    final theme = Theme.of(context);
+    final chatState = context.watch<ChatState>();
+    final messages = chatState.messages;
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('On-Device Assistant'),
+        title: const Text('Local Assistant'),
         actions: [
-          // Optional: display a live transcript or recording status in app bar
-          if (chatState.isRecording && chatState.currentTranscript.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Center(child: Text(chatState.currentTranscript, style: TextStyle(fontStyle: FontStyle.italic))), 
+          // Example: Indicator for AI speaking
+          if (chatState.isAISpeaking)
+            const Padding(
+              padding: EdgeInsets.only(right: 16.0),
+              child: Icon(Icons.volume_up, color: Colors.lightBlueAccent),
             )
         ],
       ),
@@ -27,106 +27,83 @@ class ChatScreen extends StatelessWidget {
           Expanded(
             child: ListView.builder(
               reverse: true, // To show latest messages at the bottom
-              padding: const EdgeInsets.all(16.0),
-              itemCount: chatState.messages.length,
+              padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 20.0),
+              itemCount: messages.length,
               itemBuilder: (context, index) {
-                final message = chatState.messages[chatState.messages.length - 1 - index];
-                final isUser = message.sender == MessageSender.user;
-                return _buildMessageBubble(context, message, isUser, theme);
+                final message = messages[messages.length - 1 - index];
+                return _buildMessageBubble(context, message);
               },
             ),
           ),
-          _buildTextInputArea(context, chatState, theme),
+          // You could add a text input field here as well for typed messages
+          _buildInputArea(context, chatState),
         ],
       ),
     );
   }
 
-  Widget _buildMessageBubble(BuildContext context, Message message, bool isUser, ThemeData theme) {
+  Widget _buildMessageBubble(BuildContext context, Message message) {
+    final bool isUser = message.isUser;
+    final theme = Theme.of(context);
+
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4.0),
-        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+        margin: const EdgeInsets.symmetric(vertical: 5.0, horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 14.0),
         decoration: BoxDecoration(
-          color: isUser 
-              ? theme.primaryColor // User message color (ChatGPT green)
-              : theme.cardColor, // Assistant message color (slightly lighter dark shade)
-          borderRadius: BorderRadius.circular(16.0),
+          color: isUser ? theme.primaryColor.withOpacity(0.9) : theme.cardColor,
+          borderRadius: BorderRadius.only(
+            topLeft: const Radius.circular(16.0),
+            topRight: const Radius.circular(16.0),
+            bottomLeft: isUser ? const Radius.circular(16.0) : const Radius.circular(0),
+            bottomRight: isUser ? const Radius.circular(0) : const Radius.circular(16.0),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.1),
+              spreadRadius: 1,
+              blurRadius: 3,
+              offset: const Offset(0, 1),
+            ),
+          ],
         ),
+        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
         child: Text(
           message.text,
-          style: TextStyle(
-            color: isUser ? Colors.white : theme.textTheme.bodyLarge?.color,
-          ),
+          style: TextStyle(color: isUser ? Colors.white : theme.textTheme.bodyLarge?.color),
         ),
       ),
     );
   }
 
-  Widget _buildTextInputArea(BuildContext context, ChatState chatState, ThemeData theme) {
-    final textController = TextEditingController();
-
+  Widget _buildInputArea(BuildContext context, ChatState chatState) {
     return Container(
-      padding: const EdgeInsets.all(12.0),
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 12.0),
       decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor, // Or theme.cardColor for a slight contrast
+        color: Theme.of(context).scaffoldBackgroundColor,
         boxShadow: [
           BoxShadow(
             offset: const Offset(0, -2),
-            blurRadius: 4,
+            blurRadius: 5,
             color: Colors.black.withOpacity(0.1),
-          )
-        ]
+          ),
+        ],
       ),
       child: Row(
         children: [
-          Expanded(
-            child: TextField(
-              controller: textController,
-              style: TextStyle(color: theme.textTheme.bodyLarge?.color),
-              decoration: InputDecoration(
-                hintText: 'Type a message...',
-                hintStyle: TextStyle(color: Colors.grey[600]),
-                filled: true,
-                fillColor: theme.inputDecorationTheme.fillColor ?? theme.cardColor, // From theme
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24.0),
-                  borderSide: BorderSide.none,
-                ),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
-              ),
-              onSubmitted: (text) {
-                if (text.isNotEmpty) {
-                  chatState.addUserMessage(text);
-                  textController.clear();
-                }
-              },
-            ),
-          ),
-          const SizedBox(width: 8.0),
+          // Optional: Text input field
+          // Expanded(
+          //   child: TextField(
+          //     decoration: InputDecoration(hintText: "Type a message..."),
+          //   ),
+          // ),
+          // SizedBox(width: 8),
           FloatingActionButton(
-            mini: true,
-            onPressed: () {
-              chatState.toggleRecording();
-            },
-            backgroundColor: theme.floatingActionButtonTheme.backgroundColor ?? theme.primaryColor,
-            child: Icon(
-              chatState.isRecording ? Icons.stop : Icons.mic,
-              color: theme.floatingActionButtonTheme.foregroundColor ?? Colors.white,
-            ),
-          ),
-          const SizedBox(width: 4.0),
-          IconButton(
-            icon: Icon(Icons.send, color: theme.primaryColor),
-            onPressed: () {
-              final text = textController.text;
-              if (text.isNotEmpty) {
-                chatState.addUserMessage(text);
-                textController.clear();
-              }
-            },
+            onPressed: chatState.toggleRecording,
+            backgroundColor: chatState.isRecording ? Colors.redAccent : Theme.of(context).primaryColor,
+            elevation: 2.0,
+            child: Icon(chatState.isRecording ? Icons.stop : Icons.mic, size: 28),
           ),
         ],
       ),
