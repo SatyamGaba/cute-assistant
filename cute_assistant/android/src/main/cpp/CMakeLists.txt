@@ -13,7 +13,7 @@ elseif(DEFINED DART_SDK_ROOT_FROM_FLUTTER) # Passed from Flutter build environme
 else()
     # Fallback - User must ensure this path is correct or set DART_SDK_ROOT env variable
     # Example path, ADJUST THIS IF NEEDED:
-    set(DART_SDK_INCLUDE_DIR "/path/to/flutter/bin/cache/dart-sdk/include")
+    set(DART_SDK_INCLUDE_DIR "C:\\Users\\satya\\flutter\\bin\\cache\\dart-sdk\\include")
     message(WARNING "DART_SDK_ROOT environment variable not set. Using fallback include path: ${DART_SDK_INCLUDE_DIR}. This may need adjustment.")
 endif()
 
