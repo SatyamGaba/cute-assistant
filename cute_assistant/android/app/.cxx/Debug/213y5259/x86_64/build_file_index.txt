@@ -1,0 +1,1 @@
+X:\03_code\cute-assistant\cute_assistant\android\app\src\main\cpp\CMakeLists.txt

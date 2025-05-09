@@ -1,0 +1,20 @@
+{
+  "buildFiles": [
+    "X:\\03_code\\cute-assistant\\cute_assistant\\android\\app\\src\\main\\cpp\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\satya\\AppData\\Local\\Android\\sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "X:\\03_code\\cute-assistant\\cute_assistant\\android\\app\\.cxx\\Debug\\213y5259\\x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\satya\\AppData\\Local\\Android\\sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "X:\\03_code\\cute-assistant\\cute_assistant\\android\\app\\.cxx\\Debug\\213y5259\\x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {}
+}
