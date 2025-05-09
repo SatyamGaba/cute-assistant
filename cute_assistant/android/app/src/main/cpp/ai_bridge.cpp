@@ -1,255 +1,154 @@
-#include <jni.h>
-#include <string>
-#include <vector>
-#include <thread>
-#include <mutex>
-#include <condition_variable>
-#include <atomic>
-#include <deque> // For a simple ring buffer implementation
+// #include <jni.h>
+// #include <string>
+// #include <vector>
+// #include <thread>
+// #include <mutex>
+// #include <atomic>
+// // Remove deque if TTS ring buffer is no longer needed here
 
-// Crucial: Dart C DL API for interacting with Dart from C
-#include "dart_api_dl.h"
+// #include "dart_api_dl.h"
+// #include <android/log.h>
+// #define APPNAME "AIBridgeCPP_LLM"
 
-// For logging
-#include <android/log.h>
-#define APPNAME "AIBridgeCPP"
-
-// --- Global State (Illustrative) ---
-std::atomic<bool> g_is_processing(false);
-std::thread g_stt_thread;
-std::thread g_llm_thread;
-std::thread g_tts_thread;
-
-// Dart SendPort IDs for callbacks
-Dart_Port g_transcript_port = ILLEGAL_PORT;
-Dart_Port g_llm_token_port = ILLEGAL_PORT;
-Dart_Port g_speaking_state_port = ILLEGAL_PORT;
-
-// --- TTS Ring Buffer Concept ---
-template<typename T>
-class RingBuffer {
-public:
-    explicit RingBuffer(size_t capacity) : capacity_(capacity) {}
-
-    bool push(T item) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        if (buffer_.size() >= capacity_) {
-            // Buffer full, optional: wait or drop oldest
-            // For simplicity, let's make it a blocking push or drop oldest
-            // For TTS, we might want to drop if it gets too full to prevent latency
-            // Or, LLM should pause if TTS buffer is too full (backpressure)
-            buffer_.pop_front(); // Drop oldest if full
-        }
-        buffer_.push_back(std::move(item));
-        lock.unlock();
-        cv_.notify_one();
-        return true;
-    }
-
-    T pop() {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cv_.wait(lock, [this] { return !buffer_.empty() || !g_is_processing; });
-        if (buffer_.empty()) {
-            return T(); // Return empty/default if not processing and buffer empty
-        }
-        T item = std::move(buffer_.front());
-        buffer_.pop_front();
-        return item;
-    }
-
-    bool is_empty() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        return buffer_.empty();
-    }
-
-    void clear() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        buffer_.clear();
-    }
-
-private:
-    std::deque<T> buffer_;
-    size_t capacity_;
-    std::mutex mutex_;
-    std::condition_variable cv_;
-};
-
-RingBuffer<std::string> g_tts_text_buffer(20); // Buffer up to 20 text segments/tokens for TTS
-
-// --- Helper to send string to Dart ---
-void SendStringToDart(Dart_Port port_id, const std::string& message) {
-    if (port_id == ILLEGAL_PORT) return;
-
-    Dart_CObject dart_object;
-    dart_object.type = Dart_CObject_kString;
-    // Dart_PostCObject expects char*, not const char*. So, we might need a copy.
-    // However, for literals or short-lived strings, it might be okay if Dart copies it immediately.
-    // Safest: char* str = strdup(message.c_str()); dart_object.value.as_string = str; Dart_PostCObject_DL(port_id, &dart_object); free(str);
-    // For now, assuming Dart handles it:
-    dart_object.value.as_string = const_cast<char*>(message.c_str());
-
-    const bool result = Dart_PostCObject_DL(port_id, &dart_object);
-    if (!result) {
-        __android_log_print(ANDROID_LOG_ERROR, APPNAME, "Dart_PostCObject_DL failed for string");
-    }
-}
-
-void SendBoolToDart(Dart_Port port_id, bool value) {
-    if (port_id == ILLEGAL_PORT) return;
-    Dart_CObject dart_object;
-    dart_object.type = Dart_CObject_kBool;
-    dart_object.value.as_bool = value;
-    Dart_PostCObject_DL(port_id, &dart_object);
-}
+// // --- Global State for LLM ---
+// std::atomic<bool> g_is_llm_processing_active(false); // To control the LLM loop if needed
+// std::thread g_llm_thread;
+// // Mutex and CV for LLM input queue if you implement one
+// std::mutex g_llm_input_mutex;
+// std::condition_variable g_llm_input_cv;
+// std::string g_llm_input_text;
 
 
-// --- STT Thread Function (Placeholder) ---
-void stt_thread_func() {
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "STT thread started");
-    // Initialize Whisper.cpp / VAD here
+// Dart_Port g_llm_token_port = ILLEGAL_PORT;
+// Dart_Port g_llm_error_port = ILLEGAL_PORT;
 
-    while(g_is_processing) {
-        // Simulate STT work
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        if (!g_is_processing) break;
 
-        // Get final transcript
-        std::string transcript = "User said: Hello world at " + std::to_string(time(nullptr));
+// void SendStringToDart(Dart_Port port_id, const std::string& message) {
+//     if (port_id == ILLEGAL_PORT) return;
+//     Dart_CObject dart_object;
+//     dart_object.type = Dart_CObject_kString;
+//     char* cstr = new char[message.length() + 1];
+//     strcpy(cstr, message.c_str());
+//     dart_object.value.as_string = cstr;
+
+//     const bool result = Dart_PostCObject_DL(port_id, &dart_object);
+//     if (!result) {
+//         __android_log_print(ANDROID_LOG_ERROR, APPNAME, "Dart_PostCObject_DL failed for string to port %lld", port_id);
+//     }
+//     delete[] cstr; // Free the copied string
+// }
+
+// // --- LLM Thread Function (Placeholder - Integrate your Llama.cpp here) ---
+// void llm_processing_loop() {
+//     // Initialize Llama.cpp (with QNN delegate on NPU) ONCE when thread starts
+//     // llama_context * ctx = llama_init_from_file(...);
+//     // if (!ctx) { SendStringToDart(g_llm_error_port, "Failed to load LLM model"); return; }
+
+//     __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM processing thread started.");
+
+//     while (g_is_llm_processing_active) {
+//         std::string current_input;
+//         {
+//             std::unique_lock<std::mutex> lock(g_llm_input_mutex);
+//             g_llm_input_cv.wait(lock, [] { return !g_llm_input_text.empty() || !g_is_llm_processing_active; });
+
+//             if (!g_is_llm_processing_active && g_llm_input_text.empty()) {
+//                 break; // Exit if shutting down and no pending input
+//             }
+//             current_input = std::move(g_llm_input_text);
+//             g_llm_input_text.clear(); // Clear after moving
+//         }
+
+//         if (current_input.empty()) continue;
+
+//         __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM received input: %s", current_input.c_str());
+
+//         // --- LLAMA.CPP INFERENCE ---
+//         // 1. Tokenize input: std::vector<llama_token> tokens_list = llama_tokenize(ctx, current_input.c_str(), true);
+//         // 2. Configure batch, eval: llama_batch batch = llama_batch_get_one(tokens_list.data(), tokens_list.size(), 0, 0);
+//         //                          if (llama_decode(ctx, batch) != 0) { /* error */ }
+//         // 3. Sampling loop to generate output tokens:
+//         //    while (current_token != llama_token_eos(ctx) && g_is_llm_processing_active) {
+//         //        auto logits = llama_get_logits_ith(ctx, batch.n_tokens - 1);
+//         //        // ... (apply samplers: temp, top_k, top_p etc.) ...
+//         //        current_token = llama_sample_token(ctx, nullptr /* candidates */);
+//         //        if (current_token == llama_token_eos(ctx)) break;
+//         //        std::string token_text = llama_token_to_piece(ctx, current_token);
+//         //        SendStringToDart(g_llm_token_port, token_text);
+//         //        llama_batch_clear(&batch);
+//         //        llama_batch_add(&batch, current_token, batch.n_tokens, { 0 }, true);
+//         //        if (llama_decode(ctx, batch) != 0) { /* error */ break; }
+//         //    }
+//         // --- END LLAMA.CPP ---
         
-        // Send transcript to UI immediately
-        SendStringToDart(g_transcript_port, transcript);
-        
-        // Log and pass to LLM
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Final transcript going to LLM: %s", transcript.c_str());
-        
-        // Here you would pass to LLM's input queue
-        // For now simulated - in real implementation you'd:
-        // 1. Pass to LLM input buffer
-        // 2. Signal LLM thread that new input is available
-    }
-    
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "STT thread finished");
-}
-
-// --- LLM Thread Function (Placeholder) ---
-void llm_thread_func() {
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM thread started");
-    // Initialize Llama.cpp (with QNN delegate on NPU)
-    // Loop while g_is_processing
-    //  - Wait for input text from STT (e.g., from a queue)
-    //  - Process text with Llama.cpp, generating tokens in a streaming fashion
-    //  - For each token/chunk:
-    //      - SendStringToDart(g_llm_token_port, token_str);
-    //      - g_tts_text_buffer.push(token_str); // Push to TTS ring buffer
-    while(g_is_processing) {
-        // Simulate LLM work based on STT input (which is missing here for true pipeline)
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-        if (!g_is_processing) break;
-
-        std::string llm_response_token = "AI token part 1 ";
-        SendStringToDart(g_llm_token_port, llm_response_token);
-        g_tts_text_buffer.push(llm_response_token);
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        if (!g_is_processing) break;
-
-        llm_response_token = "and part 2. ";
-        SendStringToDart(g_llm_token_port, llm_response_token);
-        g_tts_text_buffer.push(llm_response_token);
-         __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM produced tokens");
-    }
-    // Cleanup Llama.cpp
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM thread finished");
-}
-
-// --- TTS Thread Function (Placeholder) ---
-void tts_thread_func() {
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "TTS thread started");
-    // Initialize TTS Engine (e.g., FastSpeech2 on GPU)
-    // Loop while g_is_processing or g_tts_text_buffer is not empty
-    //  - std::string text_to_speak = g_tts_text_buffer.pop();
-    //  - If text_to_speak is not empty:
-    //      - SendBoolToDart(g_speaking_state_port, true);
-    //      - Synthesize audio using TTS engine
-    //      - Play audio (e.g., using Android's AudioTrack via JNI or OpenSL ES)
-    //      - SendBoolToDart(g_speaking_state_port, false); // After audio chunk finishes
-    //  - If g_tts_text_buffer is empty and not g_is_processing, break.
-    while(g_is_processing || !g_tts_text_buffer.is_empty()) {
-        std::string text_chunk = g_tts_text_buffer.pop();
-        if (!text_chunk.empty()) {
-            SendBoolToDart(g_speaking_state_port, true);
-            __android_log_print(ANDROID_LOG_INFO, APPNAME, "TTS consuming: %s", text_chunk.c_str());
-            // Simulate TTS synthesis and playback
-            std::this_thread::sleep_for(std::chrono::milliseconds(text_chunk.length() * 50)); // Rough estimate
-            SendBoolToDart(g_speaking_state_port, false);
-        } else if (!g_is_processing) {
-            break; // Exit if no more processing and buffer is drained
-        }
-    }
-    // Cleanup TTS Engine
-    __android_log_print(ANDROID_LOG_INFO, APPNAME, "TTS thread finished");
-    SendBoolToDart(g_speaking_state_port, false); // Ensure final state is not speaking
-}
+//         // Placeholder simulation:
+//         SendStringToDart(g_llm_token_port, "LLM got: " + current_input + ". ");
+//         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+//         SendStringToDart(g_llm_token_port, "Thinking... ");
+//         std::this_thread::sleep_for(std::chrono::milliseconds(500));
+//         SendStringToDart(g_llm_token_port, "Response part 1. ");
+//          std::this_thread::sleep_for(std::chrono::milliseconds(300));
+//         SendStringToDart(g_llm_token_port, "Response part 2.\n");
 
 
-// --- FFI Exported Functions ---
-extern "C" {
-    DART_EXPORT void native_initialize_dart_api(void* data) {
-        if (Dart_InitializeApiDL(data) != 0) {
-            __android_log_print(ANDROID_LOG_ERROR, APPNAME, "Failed to initialize Dart API DL");
-        } else {
-             __android_log_print(ANDROID_LOG_INFO, APPNAME, "Dart API DL Initialized successfully.");
-        }
-    }
+//         // Ensure a small yield to prevent busy-looping if input comes fast
+//         std::this_thread::sleep_for(std::chrono::milliseconds(10));
+//     }
 
-    DART_EXPORT void native_initialize_ports(Dart_Port transcript_port, Dart_Port llm_token_port, Dart_Port speaking_state_port) {
-        g_transcript_port = transcript_port;
-        g_llm_token_port = llm_token_port;
-        g_speaking_state_port = speaking_state_port;
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Native ports initialized.");
-    }
+//     // llama_free(ctx); // Cleanup Llama.cpp context
+//     __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM processing thread finished.");
+// }
 
-    DART_EXPORT void native_start_processing() {
-        if (g_is_processing) return;
-        g_is_processing = true;
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Starting processing threads...");
 
-        // Clear any stale data in TTS buffer from previous runs
-        g_tts_text_buffer.clear();
+// extern "C" {
+//     DART_EXPORT void native_initialize_dart_api(void* data) {
+//         if (Dart_InitializeApiDL(data) != 0) {
+//             __android_log_print(ANDROID_LOG_ERROR, APPNAME, "Failed to initialize Dart API DL for LLM");
+//         } else {
+//              __android_log_print(ANDROID_LOG_INFO, APPNAME, "Dart API DL Initialized successfully for LLM.");
+//         }
+//     }
 
-        // Start your STT, LLM, TTS threads
-        // TODO: Proper error handling for thread creation
-        g_stt_thread = std::thread(stt_thread_func);
-        g_llm_thread = std::thread(llm_thread_func);
-        g_tts_thread = std::thread(tts_thread_func);
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Processing threads launched.");
-    }
+//     DART_EXPORT void native_initialize_llm_ports(Dart_Port llm_token_port, Dart_Port llm_error_port_id) {
+//         g_llm_token_port = llm_token_port;
+//         g_llm_error_port = llm_error_port_id;
+//         __android_log_print(ANDROID_LOG_INFO, APPNAME, "Native LLM ports initialized.");
 
-    DART_EXPORT void native_stop_processing() {
-        if (!g_is_processing) return;
-        g_is_processing = false;
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Stopping processing threads...");
+//         // Start the LLM processing thread ONCE here
+//         if (!g_llm_thread.joinable()) {
+//              g_is_llm_processing_active = true;
+//              g_llm_thread = std::thread(llm_processing_loop);
+//         }
+//     }
 
-        // Notify condition variables in any blocking queues/buffers
-        // (The RingBuffer's pop() checks g_is_processing)
-        // g_stt_input_cv.notify_all();
-        // g_llm_input_cv.notify_all();
-        g_tts_text_buffer.push(""); // Push an empty signal to potentially wake TTS
+//     DART_EXPORT void native_process_llm_input(const char* text_input) {
+//         if (text_input == nullptr) {
+//             SendStringToDart(g_llm_error_port, "Received null input for LLM.");
+//             return;
+//         }
+//         std::string input_str(text_input);
+//         {
+//             std::lock_guard<std::mutex> lock(g_llm_input_mutex);
+//             g_llm_input_text = input_str; // Set new input
+//         }
+//         g_llm_input_cv.notify_one(); // Notify the LLM thread
+//         __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM input queued via FFI: %s", input_str.c_str());
+//     }
 
-        if (g_stt_thread.joinable()) g_stt_thread.join();
-        if (g_llm_thread.joinable()) g_llm_thread.join();
-        if (g_tts_thread.joinable()) g_tts_thread.join();
+//     DART_EXPORT void native_dispose_llm() {
+//         __android_log_print(ANDROID_LOG_INFO, APPNAME, "Disposing LLM native resources...");
+//         g_is_llm_processing_active = false;
+//         {
+//             std::lock_guard<std::mutex> lock(g_llm_input_mutex);
+//             g_llm_input_text.clear(); // Clear any pending input
+//         }
+//         g_llm_input_cv.notify_all(); // Wake up thread to exit
 
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Processing threads stopped and joined.");
-        SendBoolToDart(g_speaking_state_port, false); // Ensure UI knows AI is not speaking
-    }
-
-    DART_EXPORT void native_dispose() {
-        native_stop_processing(); // Ensure everything is stopped
-        g_transcript_port = ILLEGAL_PORT;
-        g_llm_token_port = ILLEGAL_PORT;
-        g_speaking_state_port = ILLEGAL_PORT;
-        __android_log_print(ANDROID_LOG_INFO, APPNAME, "Native resources disposed.");
-        // Any other global cleanup
-    }
-} // extern "C"
+//         if (g_llm_thread.joinable()) {
+//             g_llm_thread.join();
+//         }
+//         g_llm_token_port = ILLEGAL_PORT;
+//         g_llm_error_port = ILLEGAL_PORT;
+//         __android_log_print(ANDROID_LOG_INFO, APPNAME, "LLM native resources disposed.");
+//     }
+// }

@@ -14,51 +14,65 @@ class Message {
 class ChatState extends ChangeNotifier {
   final OnDeviceAIService _aiService;
   final List<Message> _messages = [];
-  bool _isRecording = false;
-  bool _isAISpeaking = false; // To track if TTS is active
-  String _currentTranscript = ""; // To buffer user's speech before sending
+  // bool _isRecording = false; // Now managed by _aiService.isOverallListeningStream
+  bool _isOverallListening = false;
+  bool _isAISpeaking = false;
 
   ChatState(this._aiService) {
     _initialize();
   }
 
   List<Message> get messages => List.unmodifiable(_messages);
-  bool get isRecording => _isRecording;
-  bool get isAISpeaking => _isAISpeaking; // Expose this if UI needs it
+  bool get isRecording => _isOverallListening; // Reflects VAD/STT activity
+  bool get isAISpeaking => _isAISpeaking;
 
   Future<void> _initialize() async {
+    // Listen to overall listening state (VAD/STT active)
+    _aiService.isOverallListeningStream.listen((listening) {
+      _isOverallListening = listening;
+      if (!listening && _messages.isNotEmpty && _messages.last.isUser && _messages.last.text.endsWith("...")) {
+        // Clean up if STT stopped before finalizing, and we were showing "..."
+         if (_messages.last.text == "...") _messages.removeLast();
+      }
+      notifyListeners();
+    });
+
     // Listen to transcription updates from the AI service
     _aiService.transcriptStream.listen((transcriptChunk) {
-      _currentTranscript = transcriptChunk;
-      if (_isRecording) {
-        // If this is the first chunk for this recording session, add a new message
-        if (_messages.isEmpty || _messages.last.isUser == false) {
-          _addMessage(Message(_currentTranscript, true));
+      if (_isOverallListening) { // Only update user message if actively listening
+        if (_messages.isEmpty || !_messages.last.isUser || _messages.last.text.isEmpty) {
+          // Add new user message or if previous AI message was last
+          _addMessage(Message(transcriptChunk, true));
         } else {
           // Update the last user message with the new transcript
-          _messages.last.text = _currentTranscript;
+          _messages.last.text = transcriptChunk;
+        }
+      } else {
+        // This might be a final transcript after listening stopped, add as new if not empty
+        if (transcriptChunk.isNotEmpty && (_messages.isEmpty || !_messages.last.isUser || _messages.last.text != transcriptChunk)) {
+            // Check if this exact message already exists to avoid duplicates from final STT result
+            _addMessage(Message(transcriptChunk, true));
         }
       }
       notifyListeners();
     }, onError: (error) {
-      _addMessage(Message("Error in transcription: $error", false));
-      _stopRecordingInternal();
+      _addMessage(Message("Input Error: $error", false));
+      _isOverallListening = false;
+      notifyListeners();
     });
 
-    // Listen to LLM token stream for AI responses
     _aiService.llmResponseStream.listen((token) {
       if (_messages.isEmpty || _messages.last.isUser) {
-        _addMessage(Message(token, false)); // Start new AI message
+        _addMessage(Message(token, false));
       } else {
-        _messages.last.text += token; // Append to existing AI message
+        _messages.last.text += token;
       }
       notifyListeners();
     }, onError: (error) {
-      _addMessage(Message("Error from LLM: $error", false));
-      _stopRecordingInternal(); // Or handle differently
+      _addMessage(Message("AI Error: $error", false));
+      notifyListeners();
     });
 
-    // Listen to AI speaking state (TTS active or not)
     _aiService.isSpeakingStream.listen((speaking) {
       _isAISpeaking = speaking;
       notifyListeners();
@@ -66,46 +80,51 @@ class ChatState extends ChangeNotifier {
   }
 
   void _addMessage(Message message) {
-    _messages.add(message);
-    if (_messages.length > 50) { // Keep history manageable
+    // Prevent adding exact duplicate consecutive messages quickly
+    if (_messages.isNotEmpty && _messages.last.text == message.text && _messages.last.isUser == message.isUser) {
+      // If it's an update to the last user message, allow it
+      if (message.isUser && _isOverallListening) {
+         _messages.last.text = message.text; // This case is handled above
+      } else {
+        return;
+      }
+    } else {
+       _messages.add(message);
+    }
+   
+    if (_messages.length > 50) {
       _messages.removeAt(0);
     }
     notifyListeners();
   }
 
   Future<void> toggleRecording() async {
-    if (_isRecording) {
-      // Stop recording
-      _aiService.stopProcessing();
-      if (_currentTranscript.isNotEmpty) {
-        _addMessage(Message(_currentTranscript, true));
-        _currentTranscript = ""; // Clear buffer
-      }
-      _isRecording = false;
+    if (_isOverallListening) {
+      await _aiService.stopListening();
     } else {
-      // Start recording
-      var status = await Permission.microphone.request();
-      if (status.isGranted) {
-        _aiService.startProcessing();
-        _isRecording = true;
+      var micStatus = await Permission.microphone.request();
+      if (micStatus.isGranted) {
+         // Add a placeholder to indicate listening started
+        if (_messages.isEmpty || !_messages.last.isUser) {
+            _addMessage(Message("...", true));
+        } else if (_messages.last.isUser && _messages.last.text.isNotEmpty) {
+            _addMessage(Message("...", true));
+        } else {
+            _messages.last.text = "..."; // Update existing empty user message
+        }
+        notifyListeners();
+        await _aiService.startListening();
       } else {
         _addMessage(Message("Microphone permission denied.", false));
       }
     }
-    notifyListeners();
+    // State (_isOverallListening) will be updated by the stream from service
   }
 
   Future<void> sendTextMessage(String text) async {
     if (text.trim().isEmpty) return;
     _addMessage(Message(text, true));
-    await _aiService.processTextInput(text);
-  }
-
-  // Internal stop, e.g., on error
-  void _stopRecordingInternal() {
-    _aiService.stopProcessing();
-    _isRecording = false;
-    notifyListeners();
+    await _aiService.sendText(text); // This now sends to LLM via FFI
   }
 
   @override
